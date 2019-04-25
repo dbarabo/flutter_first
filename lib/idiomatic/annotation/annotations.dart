@@ -1,6 +1,7 @@
 import 'package:reflectable/reflectable.dart';
 
 enum DbOperation {
+  mainSelect,
   select,
   insert,
   update,

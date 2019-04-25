@@ -17,7 +17,7 @@ abstract class DbAbstract {
 /// query service for entity T
 abstract class QueryAbstract<T> {
 
-  Future<List<T>> select(String query, [List<dynamic> params]);
+  Future<List<T>> select(String query, {List<dynamic> params, bool isMain = true});
 
   Future<List<T>> get getMainEntityList;
 

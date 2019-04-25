@@ -31,15 +31,18 @@ class Query<T> implements QueryAbstract<T> {
 
   String _tableName;
   ClassMirror _typeInstance;
+  bool _isGenerateSelect = false;
 
   List<T> mainList;
 
-  Query(this._db ) {
+  Query(this._db, {bool isGenerateSelect = false}) {
     _db.addQuery(this, T);
 
     final entityByType = getEntityAnnotation(T);
 
     if(entityByType == null) throw Exception("$T is not contains @entity annotation");
+
+    _isGenerateSelect = isGenerateSelect;
 
     _tableName = entityByType.tableName;
 
@@ -82,39 +85,45 @@ class Query<T> implements QueryAbstract<T> {
   @override
   Future<T> selectOne(String query, [List params]) async {
 
-    final List<T> resultList = await select(query, params);
+    final List<T> resultList = await select(query, params: params, isMain: false);
 
     return resultList?.isNotEmpty == true ? resultList.first : null;
   }
 
   @override
-  Future<List<T>> select(String query, [List<dynamic> params]) async {
+  Future<List<T>> select(String query, {List<dynamic> params, bool isMain = true}) async {
 
     List<Map<String, dynamic>> sqlResult = await _selectQuery(query, params);
 
-    if(sqlResult?.isNotEmpty != true) return null;
+    if(sqlResult?.isNotEmpty != true) {
+      return _initResultList(isMain);
+    }
 
     final queryUpper = query.trim().toUpperCase();
 
-    _initSelectOperations(queryUpper, sqlResult[0]);
+    final DbOperation dbOperType = isMain ? DbOperation.mainSelect : DbOperation.select;
 
-    final Map<String, ColumnInfo> columnsInfo = _operQueries[DbOperation.select]?._sqlQueries[queryUpper]?._columnsInfo;
+    await _initSelectOperations(queryUpper, sqlResult[0], dbOperType);
 
-    final List<T> result = List<T>(sqlResult.length);
-    int index = 0;
+    final _OperQuery operQuery = _operQueries[dbOperType];
+
+    final Map<String, ColumnInfo> columnsInfo = operQuery?._sqlQueries[queryUpper]?._columnsInfo;
+
+    final List<T> result = _initResultList(isMain);
+
     for(Map<String, dynamic> row in sqlResult) {
 
-      result[index] = await _fromSqlRow(row, columnsInfo);
-      index++;
+      result.add(await _fromSqlRow(row, columnsInfo));
     }
     return result;
   }
 
   @override
   Future<List<T>> get getMainEntityList async {
-    if(mainList == null) {
-      mainList = await _initDefaultMainSelect();
-    }
+    if(mainList != null) return mainList;
+
+    _isGenerateSelect ? await _initDefaultMainSelect() : _resetMainList();
+
     return mainList;
   }
 
@@ -147,6 +156,23 @@ class Query<T> implements QueryAbstract<T> {
     return pkColumn.getterToSql( entity.reflect(entityObject) );
   }
 
+  List<T> _initResultList(bool isMain) {
+    if(isMain) {
+      return _resetMainList();
+    } else {
+      return List<T>();
+    }
+  }
+
+  List<T> _resetMainList() {
+    if(mainList == null) {
+      mainList = List<T>();
+    } else {
+      mainList.clear();
+    }
+    return mainList;
+  }
+
   ColumnInfo _getFirstPkColumnInfo() {
     for (var oper in DbOperation.values) {
       final _OperQuery operQuery = _operQueries[oper];
@@ -162,18 +188,10 @@ class Query<T> implements QueryAbstract<T> {
     return null;
   }
 
-  Future<List<T>> _initDefaultMainSelect() async {
-    List<T> list = List<T>();
-
+  Future _initDefaultMainSelect() async {
     String query = defaultSelect(_tableName);
 
-    List<T> selectList = await select(query);
-
-    if(selectList?.isNotEmpty == true) {
-      list.addAll(selectList);
-    }
-
-    return list;
+    await select(query, isMain: true);
   }
 
   Future<List<Map<String, dynamic>>> _selectQuery(String query, [List<dynamic> params]) async {
@@ -189,17 +207,13 @@ class Query<T> implements QueryAbstract<T> {
     final dbOpen = await _db.getDb();
 
     print("_execute=$query");
-
     for(var par in params) {
       print("par=$par");
     }
-
     return ( params?.isNotEmpty == true ? dbOpen.execute(query, params) : dbOpen.execute(query) );
   }
 
   Future<Object> _selectValue(String query, [List<dynamic> params]) async {
-    print("_selectValue: $query");
-
     List<Map<String, dynamic>> list = await _selectQuery(query, params);
 
     return (list?.isNotEmpty == true) ? list[0].values.first : null;
@@ -246,12 +260,7 @@ class Query<T> implements QueryAbstract<T> {
         .where((it)=> it.relation == ColumnRelation.primaryKey && it.calcExpression?.isNotEmpty == true);
 
     for (var pkColumn in pkCalc) {
-      print("pkValue _selectValue calc:${pkColumn.calcExpression}");
-
       Object pkValue = await _selectValue(pkColumn.calcExpression);
-
-      print("pkValue after calc:$pkValue");
-
       await pkColumn.setterFromSql(instanceMirror, pkValue);
     }
     return _executeFirst(DbOperation.insert, instanceMirror);
@@ -261,20 +270,17 @@ class Query<T> implements QueryAbstract<T> {
 
     final String execQuery = _operQueries[operation]._sqlQueries.keys.first;
 
-    print("_executeFirst:$execQuery");
-
     final params = _operQueries[operation]._sqlQueries.values.first._columnsInfo.values
         .map((it)=> it.getterToSql(instanceMirror)).toList();
-
-    print("_executeFirst params:$params");
 
     return _execute(execQuery, params);
   }
 
-  Future<void> _initSelectOperations(String query, Map<String, dynamic> row) async {
-    final _OperQuery operQuery = _operQueries[DbOperation.select];
+  Future<void> _initSelectOperations(String query, Map<String, dynamic> row, DbOperation dbOperType) async {
 
-    if(operQuery != null && operQuery?._sqlQueries != null && operQuery?._sqlQueries[query] != null) return;
+    final _OperQuery operQuery = _operQueries[dbOperType];
+
+    if(operQuery?._sqlQueries != null && operQuery?._sqlQueries[query] != null) return;
 
     Map<String, ColumnInfo> copyColumns = _operQueries.length != 0
         ? _copyOperQueriesFromOther(row.keys) : await _initAllOperations(row.keys);
@@ -282,13 +288,13 @@ class Query<T> implements QueryAbstract<T> {
     if(copyColumns.length < row.length) {
       copyColumns = addAbsentColumns(copyColumns, row, _typeInstance, _db);
     }
-    _setSelectOperation(query, copyColumns);
+    await _setSelectOperation(query, copyColumns, dbOperType);
   }
 
-  _setSelectOperation(String query, Map<String, ColumnInfo> columns) async {
-    final _OperQuery operQuery = _operQueries[DbOperation.select] ?? _OperQuery(query, columns);
+  _setSelectOperation(String query, Map<String, ColumnInfo> columns, DbOperation dbOperType) async {
+    final _OperQuery operQuery = _operQueries[dbOperType] ?? _OperQuery(query, columns);
 
-    _operQueries[DbOperation.select] ??= operQuery;
+    _operQueries[dbOperType] ??= operQuery;
 
     operQuery.put(query, columns);
   }
@@ -306,7 +312,7 @@ class Query<T> implements QueryAbstract<T> {
   Map<String, ColumnInfo> _copyOperQueriesFromOther(Iterable<String> columnNames) {
 
     final Iterable<Map<String, ColumnInfo>> operMaps = _operQueries?.entries
-        ?.where((it) => it.key == DbOperation.insert || it.key == DbOperation.insert &&
+        ?.where((it) => [DbOperation.mainSelect, DbOperation.select, DbOperation.insert].contains(it.key) &&
         (it?.value?._sqlQueries?.values?.length ?? 0) > 0)
         ?.map((it) => it.value._sqlQueries.values)
         ?.expand((it) => it)?.where((it)=> it != null)
@@ -346,8 +352,6 @@ class Query<T> implements QueryAbstract<T> {
 
     final Map<String, ColumnInfo> entityMetaData = await initColumnEntityByTable(_tableName, _typeInstance, _selectQuery, _db);
 
-    entityMetaData.forEach((key, value)=> print("$key $value"));
-
     if(isRaiseAbsentPk && isAbsentPkColumn(entityMetaData) )
       throw Exception("for save operation must be primary key column for entity $entity");
 
@@ -380,20 +384,14 @@ class Query<T> implements QueryAbstract<T> {
 
     final columnsUpdateList = updateColumns.keys.toList();
 
-    print("columnsUpdateList:$columnsUpdateList");
-
     Map<String, ColumnInfo> pkColumns = Map<String, ColumnInfo>.from(entityMetaData)
       ..removeWhere( (k, v) => v.relation != ColumnRelation.primaryKey);
 
     final pkColumnsList = pkColumns.keys.toList();
 
-    print("pkColumnsList:$pkColumnsList");
-
     updateColumns.addAll(pkColumns);
 
     final String updateQuery = getUpdateQuery(_tableName, columnsUpdateList, pkColumnsList);
-
-    print("updateQuery:$updateQuery");
 
     final operQuery = _OperQuery(updateQuery, updateColumns);
 
@@ -402,18 +400,12 @@ class Query<T> implements QueryAbstract<T> {
 
   _fillInsertData(Map<String, ColumnInfo> entityMetaData) {
 
-    print("entityMetaData:$entityMetaData");
-
     Map<String, ColumnInfo> savedColumns = Map<String, ColumnInfo>.from(entityMetaData)
       ..removeWhere( (k, v)=> v.relation == ColumnRelation.calculated );
 
     final savedColumnNames = savedColumns.keys.toList();
 
-    print("savedColumnNames:$savedColumnNames");
-
     final String insertQuery = getInsertQuery(_tableName, savedColumnNames);
-
-    print("insertQuery:$insertQuery");
 
     final operQuery = _OperQuery(insertQuery, savedColumns);
 

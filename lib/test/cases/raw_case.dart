@@ -3,36 +3,50 @@ import 'package:flutter_first/idiomatic/db.dart';
 import 'package:flutter_first/idiomatic/idiomatic.dart';
 import 'package:flutter_first/idiomatic/query.dart';
 import 'package:flutter_first/test/entity/account.dart';
-import 'package:flutter_first/test/service/account_service.dart';
 
 DbAbstract _db;
 
-DbAbstract _getDb() {
+DbAbstract _getDb({bool isDelete = true}) {
   if(_db?.isOpen != true) {
-    _db = Db("test.db", _SCRIPT_DB, true);
+    _db = Db("test.db", _SCRIPT_PATH, isDelete, true);
   }
   return _db;
 }
 
-Future simpleSelectAccountCurrency() async => await _selectAccountCurrency();
+Future firstMayBeNotEmptySelectAccountCurrency() async => await _selectAccountCurrency(isDeleteDb:false);
+
+Future simpleEmptySelectAccountCurrency() async {
+
+  await _getDb(isDelete: false)?.close();
+
+  await _selectAccountCurrency(isDeleteDb:true);
+}
 
 Future simpleInsertUpdateAccountCurrency() async {
   final db = _getDb();
 
-  final queryCurrency = db.getQuery(Currency) ?? Query<Currency>(db);
-  final queryAccount = db.getQuery(Account) ?? QueryAccount(db);
+  final queryCurrency = db.getQuery(Currency) ?? Query<Currency>(db, isGenerateSelect: true);
+  final queryAccount = db.getQuery(Account) ?? Query<Account>(db, isGenerateSelect: true);
 
-  final Currency curRur = await queryCurrency.save(Currency("Рубль", "Руб"));
+  final List<Currency> curList = await queryCurrency.getMainEntityList;
+  final Currency curRur = curList?.firstWhere((it)=> it.name == "Рубль" || it.ext == "Руб", orElse: ()=> null)
+      ?? await queryCurrency.save(Currency("Рубль", "Руб"));
   print("curRur=$curRur");
 
-  final Currency curUsd = await queryCurrency.save(Currency("Dollar", "Usd"));
+  final Currency curUsd = curList?.firstWhere((it)=> it.name == "Dollar" || it.ext == "Usd", orElse: ()=> null)
+      ?? await queryCurrency.save(Currency("Dollar", "Usd"));
   print("curUsd=$curUsd");
 
   curUsd.name = "Доллар США";
   curUsd.ext = "USD";
-  await queryCurrency.save(curUsd);
 
-  final Account accountCash = await queryAccount.save(Account("Cash", curRur, 1));
+  curList?.firstWhere((it)=> it.name == curUsd.name || it.ext == curUsd.ext, orElse: ()=> null)
+    ?? await queryCurrency.save(curUsd);
+
+  final List<Account> accountList = await queryAccount.getMainEntityList;
+
+  final Account accountCash = accountList?.firstWhere( (it)=> it.name == "Cash", orElse: ()=> null) ??
+    await queryAccount.save(Account("Cash", curRur, 1));
   print("accountCash=$accountCash");
 
   accountCash.description = "update desc 0";
@@ -40,14 +54,17 @@ Future simpleInsertUpdateAccountCurrency() async {
   accountCash.name = "Налик";
   accountCash.currency = curUsd;
 
+  accountList?.firstWhere( (it)=> it.name == accountCash.name, orElse: ()=> null) ??
+      await queryAccount.save(accountCash);
+
   await _selectAccountCurrency();
 }
 
 Future simpleDeleteAccountCurrency() async {
   final db = _getDb();
 
-  final queryCurrency = db.getQuery(Currency) ?? Query<Currency>(db);
-  final queryAccount = db.getQuery(Account) ?? QueryAccount(db);
+  final queryCurrency = db.getQuery(Currency) ?? Query<Currency>(db, isGenerateSelect: true);
+  final queryAccount = db.getQuery(Account) ?? Query<Account>(db, isGenerateSelect: true);
 
   final Currency usd = await queryCurrency.getEntityById(2);
   if(usd == null) {
@@ -60,47 +77,27 @@ Future simpleDeleteAccountCurrency() async {
   await queryCurrency.delete(usd);
 
   await _selectAccountCurrency();
+
+  await simpleInsertUpdateAccountCurrency();
 }
 
-Future _selectAccountCurrency() async {
+Future _selectAccountCurrency({bool isDeleteDb = false}) async {
 
-  final db = _getDb();
+  final db = _getDb(isDelete: isDeleteDb);
 
-  final queryCurrency = db.getQuery(Currency) ?? Query<Currency>(db);
-  final queryAccount = db.getQuery(Account) ?? QueryAccount(db);
-
-  final listCurrency = await queryCurrency.getMainEntityList;
-  for(var cur in listCurrency) {
-    print("cur=$cur");
-  }
+  final queryCurrency = db.getQuery(Currency) ?? Query<Currency>(db, isGenerateSelect: true);
+  final queryAccount = db.getQuery(Account) ?? Query<Account>(db, isGenerateSelect: true);
 
   final listAccount = await queryAccount.getMainEntityList;
   for(var acc in listAccount) {
     print("acc=$acc");
   }
+
+  print("before currency");
+  final listCurrency = await queryCurrency.getMainEntityList;
+  for(var cur in listCurrency) {
+    print("cur=$cur");
+  }
 }
 
-
-const _SCRIPT_DB = """
-/* 1. Валюты - DEF RUR */
-create table CURRENCY (
-ID INT NOT NULL PRIMARY KEY,
-NAME varchar(10) NOT NULL UNIQUE,
-EXT varchar(3) NOT NULL UNIQUE,
-SYNC INT
-);
-
-/* 2.  Счета */
-create table ACCOUNT (
-ID INT NOT NULL PRIMARY KEY,
-NAME varchar(100) NOT NULL,
-DESCRIPTION varchar(1024),
-CURRENCY INT NOT NULL REFERENCES CURRENCY(ID),
-TYPE INT NOT NULL DEFAULT 0, /* 0-текущие счета, 1-Кредиты, 2-Депозиты */
-CLOSED DATE,
-IS_USE_DEBT INT NOT NULL DEFAULT 0, /* 1-учитывать в долгах субъекта */
-SYNC INT,
-CHECK (TYPE in (0, 1, 2)),
-CHECK (IS_USE_DEBT in (0, 1))
-);
-""";
+const _SCRIPT_PATH = "assets/db.sql";
