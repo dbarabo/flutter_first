@@ -12,5 +12,7 @@ class RawTestPage extends TestPage {
     test("First Insert/Update Account&Currency", simpleInsertUpdateAccountCurrency);
 
     test("First Delete Account&Currency", simpleDeleteAccountCurrency);
+
+    test("First Transact Account&Currency", simpleTransactOperations);
   }
 }

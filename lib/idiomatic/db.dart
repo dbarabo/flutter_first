@@ -1,7 +1,8 @@
-import 'package:path/path.dart';
-import 'package:sqflite/sqflite.dart';
+import 'dart:collection';
 
 import 'package:flutter/services.dart' show rootBundle;
+import 'package:path/path.dart';
+import 'package:sqflite/sqflite.dart';
 
 import 'idiomatic.dart';
 
@@ -17,7 +18,23 @@ class Db implements DbAbstract {
 
   Database _database;
 
+  Queue<Transaction> _activeTransact = Queue<Transaction>();
+
   Db(this._path, [this._scriptSqlCreate, this._isDeleteExists = false, this._isScriptFilePath = false, this._version = 1]);
+
+  @override
+  Future<DatabaseExecutor> get activeTransaction async {
+
+    final transact = _activeTransact.length > 0 ? _activeTransact.last : null;
+
+    return transact != null ? transact : await database;
+  }
+
+  @override
+  set activationTransaction(Transaction transaction) => _activeTransact.addLast(transaction);
+
+  @override
+  Transaction removeLastTransact() => _activeTransact.length == 0 ? null : _activeTransact.removeLast();
 
   @override
   bool get isOpen => _database?.isOpen ?? false;
@@ -29,7 +46,7 @@ class Db implements DbAbstract {
   QueryAbstract getQuery(Type type) => _queries[type];
 
   @override
-  Future<Database> getDb() async {
+  Future<Database> get database async {
     if(!isOpen) {
       final databasesPath = await getDatabasesPath();
 

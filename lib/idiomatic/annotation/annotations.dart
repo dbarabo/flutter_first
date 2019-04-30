@@ -1,13 +1,5 @@
 import 'package:reflectable/reflectable.dart';
 
-enum DbOperation {
-  mainSelect,
-  select,
-  insert,
-  update,
-  delete
-}
-
 class Calc {
   final String selectById;
 

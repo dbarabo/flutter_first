@@ -2,9 +2,18 @@ import 'package:flutter_first/idiomatic/reflect.dart';
 import 'package:flutter_first/idiomatic/sql_func.dart';
 import 'package:reflectable/mirrors.dart';
 import 'package:reflectable/reflectable.dart';
+import 'package:sqflite/sqlite_api.dart';
 
 import 'annotation/annotations.dart';
 import 'idiomatic.dart';
+
+enum DbOperation {
+  mainSelect,
+  select,
+  insert,
+  update,
+  delete
+}
 
 class _EntityMetaData {
 
@@ -29,20 +38,26 @@ class Query<T> implements QueryAbstract<T> {
   final DbAbstract _db;
   final Map<DbOperation, _OperQuery> _operQueries = Map<DbOperation, _OperQuery>();
 
+  final SelectFunc _mainSelectFunc;
+  final ParamsSelectFunc _mainParamsFunc;
+
   String _tableName;
+  TransformOperation _transform;
   ClassMirror _typeInstance;
-  bool _isGenerateSelect = false;
 
   List<T> mainList;
 
-  Query(this._db, {bool isGenerateSelect = false}) {
+  String get mainSelect => _mainSelectFunc == null ? null : _mainSelectFunc();
+  Future<List<dynamic>> get mainParams => _mainParamsFunc == null ? null : _mainParamsFunc();
+
+  List<ListenerInfo<T>> _listeners;
+
+  Query(this._db, [this._mainSelectFunc, this._mainParamsFunc]) {
     _db.addQuery(this, T);
 
     final entityByType = getEntityAnnotation(T);
 
     if(entityByType == null) throw Exception("$T is not contains @entity annotation");
-
-    _isGenerateSelect = isGenerateSelect;
 
     _tableName = entityByType.tableName;
 
@@ -50,79 +65,137 @@ class Query<T> implements QueryAbstract<T> {
   }
 
   @override
-  Future<T> save(T entityInstance) async {
+  set transformOperation(TransformOperation transformOperation) => _transform = transformOperation;
+
+  @override
+  void addListener(ListenerInfo listener) => _initListeners().add(listener);
+
+  @override
+  bool removeListener(ListenerInfo listener) => _listeners?.remove(listener) == true;
+
+  @override
+  Future<T> save(T entityInstance, [Transaction transaction]) async =>
+      _processOperation(entityInstance, Operation.all, transaction);
+
+  Future<T> _processOperation(T entityInstance, Operation srcOperation, Transaction transaction) async {
 
     if(_tableName?.isNotEmpty != true) throw Exception("$entity is not contains tableName for @Entity annotation");
 
-    await _initSavedOperations();
+    try {
+      _db.activationTransaction = transaction;
 
-    final InstanceMirror instanceMirror = entity.reflect(entityInstance);
+      await _initSavedOperations();
+      final InstanceMirror instanceMirror = entity.reflect(entityInstance);
 
-    if(_isNullPkEntity(instanceMirror) ) {
-      await _insertEntity(instanceMirror);
-      await _insertToMainList(entityInstance);
-    } else {
-      await _updateEntity(instanceMirror);
+      if (srcOperation == Operation.all) {
+        srcOperation = _isNullPkEntity(instanceMirror) ? Operation.insert : Operation.update;
+      }
+
+      Operation transformOperation = _transform == null ? srcOperation : _transform(
+          srcOperation, entityInstance);
+
+      await _execOperation(transformOperation, instanceMirror, entityInstance);
+
+      _sendListenerInfo([entityInstance], srcOperation);
+    } finally {
+      _db.removeLastTransact();
     }
-
-    // TODO calc values and sent listener update
     return entityInstance;
   }
 
-  @override
-  Future<void> delete(T entityInstance) async {
-    if(_tableName?.isNotEmpty != true) throw Exception("$entity is not contains tableName for @Entity annotation");
+  Future _execOperation(Operation operation, InstanceMirror instanceMirror, T entityInstance) async {
+    switch (operation) {
+      case Operation.insert:
+        await _insertEntity(instanceMirror);
+        await _insertToMainList(entityInstance);
+        break;
 
-    await _initSavedOperations();
+      case Operation.update:
+        await _updateEntity(instanceMirror);
+        await _processCalc(instanceMirror);
+        break;
 
-    final InstanceMirror instanceMirror = entity.reflect(entityInstance);
+      case Operation.delete:
+        await _deleteEntity(instanceMirror);
+        await _removeFromMainList(entityInstance);
+        break;
 
-    await _deleteEntity(instanceMirror);
+      case Operation.none:
+        break;
 
-    await _removeFromMainList(entityInstance);
+      default:
+        throw Exception("do not execute operation $operation");
+    }
+    return operation;
+  }
+
+  Future _processCalc(InstanceMirror instanceMirror) async {
+    // TODO
   }
 
   @override
-  Future<T> selectOne(String query, [List params]) async {
+  Future<void> delete(T entityInstance, [Transaction transaction]) async =>
+      _processOperation(entityInstance, Operation.delete, transaction);
 
-    final List<T> resultList = await select(query, params: params, isMain: false);
+  @override
+  Future<T> selectOne(String query, [List params, Transaction transaction]) async {
+
+    final List<T> resultList = await select(query: query, params: params, transaction: transaction);
 
     return resultList?.isNotEmpty == true ? resultList.first : null;
   }
 
   @override
-  Future<List<T>> select(String query, {List<dynamic> params, bool isMain = true}) async {
+  Future<List<T>> select({String query, List<dynamic> params, Transaction transaction}) async {
 
-    List<Map<String, dynamic>> sqlResult = await _selectQuery(query, params);
+    final String queryMainSelect = mainSelect;
 
-    if(sqlResult?.isNotEmpty != true) {
-      return _initResultList(isMain);
-    }
+    final String querySelect = query?.isNotEmpty == true ? query : queryMainSelect;
 
-    final queryUpper = query.trim().toUpperCase();
+    final isMain = querySelect == queryMainSelect;
 
-    final DbOperation dbOperType = isMain ? DbOperation.mainSelect : DbOperation.select;
-
-    await _initSelectOperations(queryUpper, sqlResult[0], dbOperType);
-
-    final _OperQuery operQuery = _operQueries[dbOperType];
-
-    final Map<String, ColumnInfo> columnsInfo = operQuery?._sqlQueries[queryUpper]?._columnsInfo;
+    final paramsSelect = params != null ? params : await mainParams;
 
     final List<T> result = _initResultList(isMain);
 
-    for(Map<String, dynamic> row in sqlResult) {
+    try {
+      _db.activationTransaction = transaction;
 
-      result.add(await _fromSqlRow(row, columnsInfo));
+      List<Map<String, dynamic>> sqlResult = await _selectQuery(querySelect, paramsSelect);
+
+      if(sqlResult?.isNotEmpty != true) {
+        _sendListenerInfo(result, Operation.select);
+        return result;
+      }
+
+      final queryUpper = querySelect.trim().toUpperCase();
+
+      final DbOperation dbOperType = isMain ? DbOperation.mainSelect : DbOperation.select;
+
+      await _initSelectOperations(queryUpper, sqlResult[0], dbOperType);
+
+      final _OperQuery operQuery = _operQueries[dbOperType];
+
+      final Map<String, ColumnInfo> columnsInfo = operQuery?._sqlQueries[queryUpper]?._columnsInfo;
+
+      for(Map<String, dynamic> row in sqlResult) {
+
+        result.add(await _fromSqlRow(row, columnsInfo));
+      }
+    } finally {
+      _db.removeLastTransact();
     }
+
+    _sendListenerInfo(result, Operation.select);
+
     return result;
   }
 
   @override
-  Future<List<T>> get getMainEntityList async {
+  Future<List<T>> get mainEntityList async {
     if(mainList != null) return mainList;
 
-    _isGenerateSelect ? await _initDefaultMainSelect() : _resetMainList();
+    mainSelect?.isNotEmpty == true ? await select() : _resetMainList();
 
     return mainList;
   }
@@ -132,7 +205,7 @@ class Query<T> implements QueryAbstract<T> {
 
     if(id == null) return null;
 
-    List<T> list = await getMainEntityList;
+    List<T> list = await mainEntityList;
 
     if(list?.isNotEmpty != true) return null;
 
@@ -154,6 +227,15 @@ class Query<T> implements QueryAbstract<T> {
     if(pkColumn == null) throw Exception("id annotation not found for entity $T");
 
     return pkColumn.getterToSql( entity.reflect(entityObject) );
+  }
+
+  _sendListenerInfo(List<T> items, Operation operation) => _listeners?.forEach((it)=> it(items, operation));
+
+  List<ListenerInfo<T>> _initListeners() {
+    if(_listeners == null) {
+      _listeners = List<ListenerInfo<T>>();
+    }
+    return _listeners;
   }
 
   List<T> _initResultList(bool isMain) {
@@ -188,29 +270,38 @@ class Query<T> implements QueryAbstract<T> {
     return null;
   }
 
-  Future _initDefaultMainSelect() async {
-    String query = defaultSelect(_tableName);
-
-    await select(query, isMain: true);
-  }
-
   Future<List<Map<String, dynamic>>> _selectQuery(String query, [List<dynamic> params]) async {
 
     print("_selectQuery:$query");
 
-    final dbOpen = await _db.getDb();
+    final dbOpen = await _db.activeTransaction;
+
+    print("_selectQuery TRANSACTION:$dbOpen");
 
     return await ( params?.isNotEmpty == true ? dbOpen.rawQuery(query, params) : dbOpen.rawQuery(query)  );
   }
 
   Future<void> _execute(String query, [List<dynamic> params]) async {
-    final dbOpen = await _db.getDb();
+    final dbOpen = await _db.activeTransaction;
 
     print("_execute=$query");
     for(var par in params) {
       print("par=$par");
     }
-    return ( params?.isNotEmpty == true ? dbOpen.execute(query, params) : dbOpen.execute(query) );
+
+    print("_execute TRANSACTION:$dbOpen");
+    try {
+      await (params?.isNotEmpty == true ? dbOpen.execute(query, params) : dbOpen.execute(query));
+    } catch (e) {
+      print("EXCEPT!!! _execute=$query");
+      for(var par in params) {
+        print("par=$par");
+      }
+      print(e);
+
+      throw Exception(e);
+    }
+
   }
 
   Future<Object> _selectValue(String query, [List<dynamic> params]) async {
@@ -240,14 +331,14 @@ class Query<T> implements QueryAbstract<T> {
 
   Future<void> _insertToMainList(T entityInstance) async {
 
-    final mainList = await getMainEntityList;
+    final mainList = await mainEntityList;
 
     mainList?.add(entityInstance);
   }
 
   Future<void> _removeFromMainList(T entityInstance) async {
 
-    final mainList = await getMainEntityList;
+    final mainList = await mainEntityList;
 
     mainList?.remove(entityInstance);
   }
