@@ -1,13 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 
-enum Operation {
-  none,
-  select,
-  insert,
-  update,
-  delete,
-  all
-}
+enum Operation { none, select, insert, update, delete, all }
 
 typedef Operation TransformOperation(Operation srcOperation, Object entity);
 
@@ -19,7 +12,6 @@ typedef Future ListenerInfo<T>(List<T> entityList, Operation operation);
 
 /// main db class
 abstract class DbAbstract {
-
   bool get isOpen;
 
   Future<void> close();
@@ -37,7 +29,6 @@ abstract class DbAbstract {
 
 /// query service for entity T
 abstract class QueryAbstract<T> {
-
   Future<List<T>> select({String query, List<dynamic> params, Transaction transaction});
 
   Future<List<T>> get mainEntityList;
@@ -56,4 +47,7 @@ abstract class QueryAbstract<T> {
   bool removeListener(ListenerInfo listener);
 
   set transformOperation(TransformOperation transformOperation);
+
+  bool get isCalculateOnSave;
+  set isCalculateOnSave(bool isCalculateOnSave);
 }
