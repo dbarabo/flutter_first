@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_first/test/gui/model/item.dart';
+import 'package:flutter_first/test/gui/page/babloz_test_page.dart';
 import 'package:flutter_first/test/gui/page/raw_test_page.dart';
 import 'package:flutter_first/test/gui/widget/main_item_widget.dart';
 
 import 'main.reflectable.dart';
 
 void main() {
-
-
   initializeReflectable(); //flutter packages pub run build_runner build
-  
+
   runApp(MyApp());
 }
 
@@ -20,11 +19,11 @@ class MyApp extends StatefulWidget {
   _MyAppState createState() => _MyAppState();
 }
 
-
 class _MyAppState extends State<MyApp> {
   var routes = <String, WidgetBuilder>{
     '/test': (BuildContext context) => MyHomePage(),
-    testRawRoute: (BuildContext context) => RawTestPage()
+    testRawRoute: (BuildContext context) => RawTestPage(),
+    testRawBabloz: (BuildContext context) => BablozTestPage(),
   };
   @override
   Widget build(BuildContext context) {
@@ -49,9 +48,9 @@ class _MyAppState extends State<MyApp> {
 
 class MyHomePage extends StatefulWidget {
   MyHomePage({Key key, this.title}) : super(key: key) {
-
     final List<MainItem> it = [
-      MainItem("Raw tests", "Raw SQLite operations", route: testRawRoute)
+      MainItem("Raw tests", "Raw SQLite operations", route: testRawRoute),
+      MainItem("Babloz tests", "Babloz SQLite operations", route: testRawBabloz)
     ];
 
     items.addAll(it);
@@ -68,9 +67,9 @@ class MyHomePage extends StatefulWidget {
 }
 
 const String testRawRoute = "/test/simple";
+const String testRawBabloz = "/test/babloz";
 
 class _MyHomePageState extends State<MyHomePage> {
-
   int get _itemCount => widget.items.length;
 
   @override
@@ -83,11 +82,9 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
         appBar: AppBar(
-          title:
-          Center(child: Text('Sqflite demo', textAlign: TextAlign.center)),
+          title: Center(child: Text('Sqflite demo', textAlign: TextAlign.center)),
         ),
-        body:
-        ListView.builder(itemBuilder: _itemBuilder, itemCount: _itemCount));
+        body: ListView.builder(itemBuilder: _itemBuilder, itemCount: _itemCount));
   }
 
   //new Center(child: new Text('Running on: $_platformVersion\n')),
