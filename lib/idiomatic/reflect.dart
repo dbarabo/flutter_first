@@ -104,7 +104,10 @@ Map<String, ColumnInfo> initCalcColumnsByType(ClassMirror typeInstance, Map<Stri
       (it) =>
           (it?.value is VariableMirror) &&
           (it?.value?.metadata != null) &&
-          it?.value?.metadata?.firstWhere((annotCalc) => annotCalc is Calc, orElse: () => null) != null);
+          it?.value?.metadata?.firstWhere(
+                  (annot) => annot is Calc /*&& annot.selectById?.isNotEmpty == true*/,
+                  orElse: () => null) !=
+              null);
 
   final Map<String, ColumnInfo> opers = Map<String, ColumnInfo>();
 
@@ -113,19 +116,20 @@ Map<String, ColumnInfo> initCalcColumnsByType(ClassMirror typeInstance, Map<Stri
   for (final calcField in calcList) {
     final columnName = _getColumnNameByVariable(calcField.value) ?? calcField.key;
 
-    final sqlValue = row == null ? null : row[columnName];
+    final sqlValue = row == null ? null : (row[columnName.toUpperCase()] ?? row[columnName.toLowerCase()]);
 
     opers[columnName] = _createCalcColumnInfo(calcField, sqlValue);
   }
   return opers;
 }
 
-ColumnInfo _createCalcColumnInfo(MapEntry<String, VariableMirror> calcField, Object sqlValue) {
+ColumnInfo _createCalcColumnInfo(MapEntry<String, DeclarationMirror> calcField, Object sqlValue) {
   MapEntry<ColumnRelation, String> relation = _getCalcRelation(calcField.value?.metadata);
 
   SqlType sqlType = valueToSqlType(sqlValue);
 
-  final ConverterSql converterFromSql = getFromSqlConverter(sqlType, calcField.value.reflectedType);
+  final ConverterSql converterFromSql =
+      getFromSqlConverter(sqlType, (calcField.value as VariableMirror).reflectedType);
 
   return ColumnInfo(calcField.key, converterFromSql, null, relation.value, null, relation.key);
 }
@@ -235,10 +239,12 @@ MapEntry<String, VariableMirror> _getFieldByName(ClassMirror typeInstance, Strin
   return MapEntry<String, VariableMirror>(field.key, field.value);
 }
 
-String _getColumnNameByVariable(VariableMirror variable) => variable?.metadata
-    ?.where((col) => col is Column && col.name?.isNotEmpty == true)
-    ?.map((it) => (it as Column).name)
-    ?.first;
+String _getColumnNameByVariable(VariableMirror variable) {
+  final Column firstColumn = variable?.metadata
+      ?.firstWhere((col) => col is Column && col?.name?.isNotEmpty == true, orElse: () => null);
+
+  return firstColumn?.name;
+}
 
 String _getIdAnnotation(List<Object> metadataColumn) {
   final Id id = metadataColumn?.firstWhere((it) => it is Id, orElse: () => null);
