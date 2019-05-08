@@ -1,3 +1,4 @@
+import 'package:flutter_first/idiomatic/reflect.dart';
 import 'package:flutter_first/test/babloz/service/catalog_service.dart';
 import 'package:sqflite/sqlite_api.dart';
 
@@ -31,5 +32,13 @@ Future _selectAccountCurrency({Transaction trx}) async {
   final listPay = await BablozDb().queryPay.select(transaction: trx);
   for (var pay in listPay) {
     print("pay=$pay");
+  }
+
+  print("copy category");
+  final srcCategories = await BablozDb().queryCategory.mainEntityList;
+  for (var categSrc in srcCategories) {
+    final copy_ = copy(categSrc);
+
+    print("copy_=$copy_");
   }
 }

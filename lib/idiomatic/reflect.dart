@@ -64,6 +64,27 @@ bool _isExistsColumn(String columnName, Iterable<String> columnNames) =>
 
 typedef Future<List<Map<String, dynamic>>> QuerySelectyData(String query, [List<dynamic> params]);
 
+T copy<T>(T entityItem) {
+  if (entityItem == null) return null;
+
+  ClassMirror clazz = entity.reflectType(T) as ClassMirror;
+
+  final T instance = clazz.newInstance("", List());
+
+  final InstanceMirror instanceCopy = entity.reflect(instance);
+
+  final InstanceMirror instanceSrc = entity.reflect(entityItem);
+
+  final Iterable<MapEntry<String, DeclarationMirror>> fields =
+      clazz.declarations?.entries?.where((it) => it.value is VariableMirror);
+
+  for (var field in fields) {
+    instanceCopy.invokeSetter(field.key, instanceSrc.invokeGetter(field.key));
+  }
+
+  return instance;
+}
+
 Future<Map<String, ColumnInfo>> initColumnEntityByTable(
     String tableName, ClassMirror typeInstance, QuerySelectyData selectFunc, DbAbstract db) async {
   print("initColumnEntityByTable typeInstance:$typeInstance");
