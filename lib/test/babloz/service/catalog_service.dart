@@ -6,29 +6,30 @@ import 'package:flutter_first/test/babloz/entity/catalog.dart';
 class BablozDb {
   static final BablozDb _instance = new BablozDb._internal();
 
-  static final DbAbstract _db = Db("babloz.db", _SCRIPT_PATH, true, true);
+  static final DbSettings dbSettings =
+      DbSettings(name: "babloz.db", pathFileCopyDb: "assets/babloz.db", isDeleteExists: true);
 
-  final _queryAccount = Query<Account>(_db, () => _ACCOUNT_SELECT);
-  final _queryCurrency = Query<Currency>(_db, () => _CURRENCY_SELECT);
-  final _queryCategory = Query<Category>(_db, () => _CATEGORY_SELECT, _categoryParams);
-  final _queryPerson = Query<Person>(_db, () => _PERSON_SELECT);
-  final _queryProject = Query<Project>(_db, () => _PROJECT_SELECT);
-  final _queryPay = Query<Pay>(_db, () => _PAY_SELECT);
+  static final Db _db = DbDefault(dbSettings);
 
-  Query<Account> get queryAccount => _queryAccount;
-  Query<Currency> get queryCurrency => _queryCurrency;
-  Query<Category> get queryCategory => _queryCategory;
-  Query<Person> get queryPerson => _queryPerson;
-  Query<Project> get queryProject => _queryProject;
-  Query<Pay> get queryPay => _queryPay;
+  final _queryAccount = QueryDefault<Account>(_db, _ACCOUNT_SELECT);
+  final _queryCurrency = QueryDefault<Currency>(_db, _CURRENCY_SELECT);
+  final _queryCategory = QueryDefault<Category>(_db, _CATEGORY_SELECT, _CATEGORY_PARAMS);
+  final _queryPerson = QueryDefault<Person>(_db, _PERSON_SELECT);
+  final _queryProject = QueryDefault<Project>(_db, _PROJECT_SELECT);
+  final _queryPay = QueryDefault<Pay>(_db, _PAY_SELECT);
+
+  QueryDefault<Account> get queryAccount => _queryAccount;
+  QueryDefault<Currency> get queryCurrency => _queryCurrency;
+  QueryDefault<Category> get queryCategory => _queryCategory;
+  QueryDefault<Person> get queryPerson => _queryPerson;
+  QueryDefault<Project> get queryProject => _queryProject;
+  QueryDefault<Pay> get queryPay => _queryPay;
 
   factory BablozDb() {
     return _instance;
   }
 
   BablozDb._internal();
-
-  static const _SCRIPT_PATH = "assets/babloz.db";
 
   static const _CURRENCY_SELECT = "select * from CURRENCY where COALESCE(SYNC, 0) != 2 order by ID";
 
@@ -48,7 +49,7 @@ class BablozDb {
 from category c where COALESCE(c.SYNC, 0) != 2
 order by case when c.parent is null then 1000000*c.id else 1000000*c.parent + c.id end""";
 
-  static Future<List<dynamic>> _categoryParams() async => [0, DateTime(2100).millisecondsSinceEpoch];
+  static const List<dynamic> _CATEGORY_PARAMS = [0, 9223372036854775807];
 
   static const _PERSON_SELECT = """
     select p.*,

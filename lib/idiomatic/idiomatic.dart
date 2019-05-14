@@ -1,26 +1,55 @@
+import 'dart:async';
+
 import 'package:sqflite/sqflite.dart';
 
 enum Operation { none, select, insert, update, delete, all }
 
 typedef Operation TransformOperation(Operation srcOperation, Object entity);
 
-typedef String SelectFunc();
+class OperationData<T> {
+  final List<T> entityData;
+  final Operation operation;
 
-typedef Future<List<dynamic>> ParamsSelectFunc();
+  const OperationData(this.entityData, this.operation);
+}
 
-typedef Future ListenerInfo<T>(List<T> entityList, Operation operation);
+typedef ListenerStream(OperationData operData);
+
+class QueryData {
+  final String query;
+  final List<dynamic> params;
+
+  const QueryData(this.query, [this.params]) : assert(query != null);
+}
+
+class DbSettings {
+  final String name;
+  final int version;
+  final String dataScriptSqlCreate;
+  final String pathFileScriptSqlCreate;
+  final String pathFileCopyDb;
+  final bool isDeleteExists;
+
+  const DbSettings(
+      {this.name,
+      this.version,
+      this.dataScriptSqlCreate,
+      this.pathFileScriptSqlCreate,
+      this.pathFileCopyDb,
+      this.isDeleteExists})
+      : assert(name != null);
+}
 
 /// main db class
-abstract class DbAbstract {
+abstract class Db {
   bool get isOpen;
 
   Future<void> close();
 
   Future<Database> get database;
 
-  void addQuery(QueryAbstract query, Type type);
-
-  QueryAbstract getQuery(Type type);
+  void addQuery(Query query, Type type);
+  Query getQuery(Type type);
 
   Future<DatabaseExecutor> get activeTransaction;
   set activationTransaction(Transaction transaction);
@@ -28,23 +57,21 @@ abstract class DbAbstract {
 }
 
 /// query service for entity T
-abstract class QueryAbstract<T> {
-  Future<List<T>> select({String query, List<dynamic> params, Transaction transaction});
+abstract class Query<T> {
+  QueryData get mainQuery;
+  set mainQuery(QueryData mainQuery);
 
-  Future<List<T>> get mainEntityList;
-
-  Future<T> selectOne(String query, [List<dynamic> params, Transaction transaction]);
-
-  Future<T> getEntityById(Object id);
-
-  Object getIdValueFromEntity(T entityObject);
+  Future<List<T>> select({QueryData queryData, Transaction transaction});
+  Future<T> selectOne(QueryData queryData, {Transaction transaction});
 
   Future<T> save(T entityInstance, [Transaction transaction]);
-
   Future<void> delete(T entityInstance, [Transaction transaction]);
 
-  void addListener(ListenerInfo listener);
-  bool removeListener(ListenerInfo listener);
+  Future<List<T>> get mainEntityList;
+  Future<T> getEntityById(Object id);
+  Object getIdValueFromEntity(T entityObject);
+
+  StreamSubscription<OperationData> addListener(ListenerStream listener);
 
   set transformOperation(TransformOperation transformOperation);
 

@@ -8,24 +8,16 @@ import 'package:sqflite/sqflite.dart';
 
 import 'idiomatic.dart';
 
-class Db implements DbAbstract {
-  final Map<Type, QueryAbstract> _queries = Map<Type, QueryAbstract>();
+class DbDefault implements Db {
+  final Map<Type, Query> _queries = Map<Type, Query>();
 
-  final String _path;
-  final String _scriptSqlCreate;
-  final int _version;
-  final bool _isDeleteExists;
-  final bool _isScriptFilePath;
+  final DbSettings _dbSettings;
 
   Database _database;
 
   Queue<Transaction> _activeTransact = Queue<Transaction>();
 
-  Db(this._path,
-      [this._scriptSqlCreate,
-      this._isDeleteExists = false,
-      this._isScriptFilePath = false,
-      this._version = 1]);
+  DbDefault(this._dbSettings) : assert(_dbSettings != null);
 
   @override
   Future<DatabaseExecutor> get activeTransaction async {
@@ -44,66 +36,54 @@ class Db implements DbAbstract {
   bool get isOpen => _database?.isOpen ?? false;
 
   @override
-  void addQuery(QueryAbstract query, Type type) => _queries[type] = query;
+  void addQuery(Query query, Type type) => _queries[type] = query;
 
   @override
-  QueryAbstract getQuery(Type type) => _queries[type];
+  Query getQuery(Type type) => _queries[type];
 
   @override
   Future<Database> get database async {
     if (!isOpen) {
       final databasesPath = await getDatabasesPath();
 
-      final String path = join(databasesPath, _path);
-      print("databasesPath:$path");
+      final String path = join(databasesPath, _dbSettings.name);
 
       bool isExistsDb = await databaseExists(path);
-      print("isExistsDb:$isExistsDb");
 
-      print("_isDeleteExists=$_isDeleteExists");
-      if (isExistsDb && _isDeleteExists) {
+      if (isExistsDb && (_dbSettings.isDeleteExists == true)) {
         await deleteDatabase(path);
         isExistsDb = false;
       }
 
       if (_isNeedCopyAssistDb() && !isExistsDb) {
-        await _copyDbTo(path);
+        await _copyDbTo(_dbSettings.pathFileCopyDb, path);
       }
 
-      _database = await openDatabase(path, version: _version, onCreate: (Database db, int version) async {
+      _database = await openDatabase(path, version: _dbSettings.version ?? 1,
+          onCreate: (Database db, int version) async {
         _createStructureTables(db);
       });
     }
     return _database;
   }
 
-  Future<void> _copyDbTo(String pathTo) async {
-    print("_scriptSqlCreate=$_scriptSqlCreate");
+  bool _isNeedCopyAssistDb() => _dbSettings.pathFileCopyDb?.isNotEmpty == true;
 
-    final String dbNamePath = join("assets", "babloz.db");
-    print("dbNamePath=$dbNamePath");
-
-    ByteData data = await rootBundle.load(dbNamePath); //rootBundle.load(_scriptSqlCreate);
+  Future<void> _copyDbTo(String pathFrom, String pathTo) async {
+    ByteData data = await rootBundle.load(pathFrom);
 
     List<int> bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
 
     await File(pathTo).writeAsBytes(bytes);
   }
 
-  bool _isNeedCopyAssistDb() {
-    if (!_isScriptFilePath || _scriptSqlCreate?.isNotEmpty != true || _path?.isNotEmpty != true) return false;
-
-    final int separ = _scriptSqlCreate.lastIndexOf(RegExp(r'(/|\\)')) + 1;
-
-    final String dbName = _scriptSqlCreate.substring(separ)?.toUpperCase();
-
-    return _path?.toUpperCase() == dbName;
-  }
-
   Future<void> _createStructureTables(Database db) async {
-    if (_scriptSqlCreate == null) return;
+    if (_dbSettings.dataScriptSqlCreate?.isNotEmpty != true &&
+        _dbSettings.pathFileScriptSqlCreate?.isNotEmpty != true) return;
 
-    final String scriptText = _isScriptFilePath ? await _loadFromFile(_scriptSqlCreate) : _scriptSqlCreate;
+    final String scriptText = _dbSettings.pathFileScriptSqlCreate?.isNotEmpty == true
+        ? await _loadFromFile(_dbSettings.pathFileScriptSqlCreate)
+        : _dbSettings.dataScriptSqlCreate;
 
     final List<String> commands = scriptText.split(";");
 

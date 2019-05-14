@@ -1,49 +1,52 @@
-
 import 'package:flutter_first/idiomatic/db.dart';
 import 'package:flutter_first/idiomatic/idiomatic.dart';
 import 'package:flutter_first/idiomatic/query.dart';
 import 'package:flutter_first/test/entity/account.dart';
 import 'package:sqflite/sqlite_api.dart';
 
-DbAbstract _db;
+Db _db;
 
-DbAbstract _getDb({bool isDelete = true}) {
-  if(_db?.isOpen != true) {
-    _db = Db("test.db", _SCRIPT_PATH, isDelete, true);
+Db _getDb({bool isDelete = true}) {
+  if (_db?.isOpen != true) {
+    final DbSettings dbSettings =
+        DbSettings(name: "test.db", pathFileScriptSqlCreate: "assets/db.sql", isDeleteExists: isDelete);
+    _db = DbDefault(dbSettings);
   }
   return _db;
 }
 
-Future firstMayBeNotEmptySelectAccountCurrency() async => await _selectAccountCurrency(isDeleteDb:false);
+Future firstMayBeNotEmptySelectAccountCurrency() async => await _selectAccountCurrency(isDeleteDb: false);
 
 Future simpleEmptySelectAccountCurrency() async {
-
   await _getDb(isDelete: false)?.close();
 
-  await _selectAccountCurrency(isDeleteDb:true);
+  await _selectAccountCurrency(isDeleteDb: true);
 }
 
 Future simpleInsertUpdateAccountCurrency() async {
   final db = _getDb();
 
-  final queryCurrency = db.getQuery(Currency) ?? Query<Currency>(db, ()=> "select * from CURRENCY");
-  final queryAccount = db.getQuery(Account) ?? Query<Account>(db, ()=> "select * from ACCOUNT");
+  final queryCurrency = db.getQuery(Currency) ?? QueryDefault<Currency>(db, "select * from CURRENCY");
+  final queryAccount = db.getQuery(Account) ?? QueryDefault<Account>(db, "select * from ACCOUNT");
 
   queryCurrency.transformOperation = transformOperationDef;
 
   final List<Currency> curList = await queryCurrency.mainEntityList;
-  final Currency curRur = curList?.firstWhere((it)=> it.name == "Рубль" || it.ext == "Руб", orElse: ()=> null)
-      ?? await queryCurrency.save(Currency("Рубль", "Руб"));
+  final Currency curRur =
+      curList?.firstWhere((it) => it.name == "Рубль" || it.ext == "Руб", orElse: () => null) ??
+          await queryCurrency.save(Currency("Рубль", "Руб"));
   print("curRur=$curRur");
 
-  final Currency curUsd = curList?.firstWhere((it)=> it.name == "Dollar" || it.ext == "Usd", orElse: ()=> null)
-      ?? await queryCurrency.save(Currency("Dollar", "Usd"));
+  final Currency curUsd =
+      curList?.firstWhere((it) => it.name == "Dollar" || it.ext == "Usd", orElse: () => null) ??
+          await queryCurrency.save(Currency("Dollar", "Usd"));
   print("curUsd=$curUsd");
 
   curUsd.name = "Доллар США";
   curUsd.ext = "USD";
 
-  Currency dolUsd = curList?.firstWhere((it)=> it.name == curUsd.name || it.ext == curUsd.ext, orElse: ()=> null);
+  Currency dolUsd =
+      curList?.firstWhere((it) => it.name == curUsd.name || it.ext == curUsd.ext, orElse: () => null);
 
   print("dolUsd:$dolUsd");
 
@@ -58,8 +61,8 @@ Future simpleInsertUpdateAccountCurrency() async {
 */
   final List<Account> accountList = await queryAccount.mainEntityList;
 
-  final Account accountCash = accountList?.firstWhere( (it)=> it.name == "Cash", orElse: ()=> null) ??
-    await queryAccount.save(Account("Cash", curRur, 1));
+  final Account accountCash = accountList?.firstWhere((it) => it.name == "Cash", orElse: () => null) ??
+      await queryAccount.save(Account("Cash", curRur, 1));
   print("accountCash=$accountCash");
 
   accountCash.description = "update desc 0";
@@ -67,24 +70,24 @@ Future simpleInsertUpdateAccountCurrency() async {
   accountCash.name = "Налик";
   accountCash.currency = curUsd;
 
-  accountList?.firstWhere( (it)=> it.name == accountCash.name, orElse: ()=> null) ??
+  accountList?.firstWhere((it) => it.name == accountCash.name, orElse: () => null) ??
       await queryAccount.save(accountCash);
 
   await _selectAccountCurrency();
 }
 
 Future simpleTransactOperations() async {
-  final db = _getDb(isDelete:false);
+  final db = _getDb(isDelete: false);
 
   final database = await db.database;
 
-  final queryCurrency = db.getQuery(Currency) ?? Query<Currency>(db, ()=> "select * from CURRENCY");
+  final queryCurrency = db.getQuery(Currency) ?? QueryDefault<Currency>(db, "select * from CURRENCY");
 
   queryCurrency.transformOperation = transformOperationDef;
 
   //final queryAccount = db.getQuery(Account) ?? Query<Account>(db, ()=> "select * from ACCOUNT");
 
-  await database.transaction( (trx) async {
+  await database.transaction((trx) async {
     await _selectAccountCurrency(trx: trx);
 
     await queryCurrency.save(Currency("test0", "ex1"), trx);
@@ -108,13 +111,13 @@ Future simpleTransactOperations() async {
 Future simpleDeleteAccountCurrency() async {
   final db = _getDb();
 
-  final queryCurrency = db.getQuery(Currency) ?? Query<Currency>(db, ()=> "select * from CURRENCY");
-  final queryAccount = db.getQuery(Account) ?? Query<Account>(db, ()=> "select * from ACCOUNT");
+  final queryCurrency = db.getQuery(Currency) ?? QueryDefault<Currency>(db, "select * from CURRENCY");
+  final queryAccount = db.getQuery(Account) ?? QueryDefault<Account>(db, "select * from ACCOUNT");
 
   queryCurrency.transformOperation = transformOperationDef;
 
   final Currency usd = await queryCurrency.getEntityById(2);
-  if(usd == null) {
+  if (usd == null) {
     print("usd:$usd");
     await simpleInsertUpdateAccountCurrency();
   }
@@ -130,28 +133,25 @@ Future simpleDeleteAccountCurrency() async {
 }
 
 Future _selectAccountCurrency({bool isDeleteDb = false, Transaction trx}) async {
-
   final db = _getDb(isDelete: isDeleteDb);
 
-  final queryCurrency = db.getQuery(Currency) ?? Query<Currency>(db, ()=> "select * from CURRENCY");
-  final queryAccount = db.getQuery(Account) ?? Query<Account>(db, ()=> "select * from ACCOUNT");
+  final queryCurrency = db.getQuery(Currency) ?? QueryDefault<Currency>(db, "select * from CURRENCY");
+  final queryAccount = db.getQuery(Account) ?? QueryDefault<Account>(db, "select * from ACCOUNT");
 
   final listAccount = await queryAccount.select(transaction: trx);
-  for(var acc in listAccount) {
+  for (var acc in listAccount) {
     print("acc=$acc");
   }
 
   print("before currency");
   final listCurrency = await queryCurrency.select(transaction: trx);
-  for(var cur in listCurrency) {
+  for (var cur in listCurrency) {
     print("cur=$cur");
   }
 }
 
-Future simpleTransform() {
+Future simpleTransform() async {
   final db = _getDb(isDelete: false);
 
-  Query<Currency>(db, ()=> "select * from CURRENCY");
+  QueryDefault<Currency>(db, "select * from CURRENCY");
 }
-
-const _SCRIPT_PATH = "assets/db.sql";

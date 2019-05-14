@@ -21,7 +21,7 @@ class ColumnInfo {
   final String _calcExpression; // for primaryKey without params, for calculated - one param - id Entity
 
   final ColumnRelation _relation;
-  final QueryAbstract _queryRef;
+  final Query _queryRef;
 
   const ColumnInfo(
       [this._varName,
@@ -86,7 +86,7 @@ T copy<T>(T entityItem) {
 }
 
 Future<Map<String, ColumnInfo>> initColumnEntityByTable(
-    String tableName, ClassMirror typeInstance, QuerySelectyData selectFunc, DbAbstract db) async {
+    String tableName, ClassMirror typeInstance, QuerySelectyData selectFunc, Db db) async {
   print("initColumnEntityByTable typeInstance:$typeInstance");
 
   List<Map<String, dynamic>> infoColumnsTable = await selectFunc(_tableInfoSelect(tableName));
@@ -103,7 +103,7 @@ Future<Map<String, ColumnInfo>> initColumnEntityByTable(
     final SqlType sqlType = aliasToSqlType(row["type"].toString());
     final ConverterSql converterFromSql = getFromSqlConverter(sqlType, field.value.reflectedType);
 
-    final QueryAbstract query = (converterFromSql == stubEntityConverter)
+    final Query query = (converterFromSql == stubEntityConverter)
         ? _getFieldEntityQuery(field.value.reflectedType, db)
         : null;
 
@@ -155,8 +155,8 @@ ColumnInfo _createCalcColumnInfo(MapEntry<String, DeclarationMirror> calcField, 
   return ColumnInfo(calcField.key, converterFromSql, null, relation.value, null, relation.key);
 }
 
-QueryAbstract _getFieldEntityQuery(Type entityType, DbAbstract db) {
-  final QueryAbstract query = db.getQuery(entityType);
+Query _getFieldEntityQuery(Type entityType, Db db) {
+  final Query query = db.getQuery(entityType);
 
   if (query == null) throw Exception("Query не создан для entity $entityType");
 
@@ -164,7 +164,7 @@ QueryAbstract _getFieldEntityQuery(Type entityType, DbAbstract db) {
 }
 
 Map<String, ColumnInfo> addAbsentColumns(
-    Map<String, ColumnInfo> columns, Map<String, dynamic> row, ClassMirror typeInstance, DbAbstract db) {
+    Map<String, ColumnInfo> columns, Map<String, dynamic> row, ClassMirror typeInstance, Db db) {
   for (final columnEntry in row.entries) {
     if (_isExistsColumn(columnEntry.key, columns.keys)) continue;
 
@@ -177,7 +177,7 @@ bool isAbsentPkColumn(Map<String, ColumnInfo> entityMetaData) =>
     entityMetaData.values.firstWhere((it) => it.relation == ColumnRelation.primaryKey, orElse: () => null) ==
     null;
 
-ColumnInfo _initSelectColumn(String columnName, Object sqlValue, ClassMirror typeInstance, DbAbstract db) {
+ColumnInfo _initSelectColumn(String columnName, Object sqlValue, ClassMirror typeInstance, Db db) {
   final MapEntry<String, VariableMirror> field = _getFieldByColumnName(typeInstance, columnName);
 
   if (field == null) return absentColumnInfo;
@@ -185,7 +185,7 @@ ColumnInfo _initSelectColumn(String columnName, Object sqlValue, ClassMirror typ
   final SqlType sqlType = sqlValue == null ? null : valueToSqlType(sqlValue);
   final ConverterSql converterFromSql = getFromSqlConverter(sqlType, field.value.reflectedType);
 
-  final QueryAbstract query =
+  final Query query =
       (converterFromSql == stubEntityConverter) ? _getFieldEntityQuery(field.value.reflectedType, db) : null;
 
   MapEntry<ColumnRelation, String> relationCalc = _getCalcRelation(field.value.metadata);

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_first/idiomatic/reflect.dart';
 import 'package:flutter_first/idiomatic/sql_func.dart';
 import 'package:reflectable/mirrors.dart';
@@ -29,27 +31,25 @@ class _OperQuery {
   }
 }
 
-class Query<T> implements QueryAbstract<T> {
-  final DbAbstract _db;
+class QueryDefault<T> implements Query<T> {
+  final Db _db;
   final Map<DbOperation, _OperQuery> _operQueries = Map<DbOperation, _OperQuery>();
-
-  final SelectFunc _mainSelectFunc;
-  final ParamsSelectFunc _mainParamsFunc;
 
   String _tableName;
   ClassMirror _typeInstance;
 
   TransformOperation _transform;
-  bool _isCalcOnSave = true;
-
   List<T> mainList;
 
-  String get mainSelect => _mainSelectFunc == null ? null : _mainSelectFunc();
-  Future<List<dynamic>> get mainParams => _mainParamsFunc == null ? null : _mainParamsFunc();
+  StreamController _listenerController;
 
-  List<ListenerInfo<T>> _listeners;
+  @override
+  bool isCalculateOnSave = true;
 
-  Query(this._db, [this._mainSelectFunc, this._mainParamsFunc]) {
+  @override
+  QueryData mainQuery;
+
+  QueryDefault(this._db, [String mainQuerySelect, List<dynamic> params]) {
     _db.addQuery(this, T);
 
     final entityByType = getEntityAnnotation(T);
@@ -59,23 +59,21 @@ class Query<T> implements QueryAbstract<T> {
     _tableName = entityByType.tableName;
 
     _typeInstance = entity.reflectType(T) as ClassMirror;
+
+    if (mainQuerySelect?.isNotEmpty == true) {
+      mainQuery = QueryData(mainQuerySelect, params);
+    }
   }
+
   @override
   set transformOperation(TransformOperation transformOperation) => _transform = transformOperation;
 
   @override
-  // ignore: unnecessary_getters_setters
-  bool get isCalculateOnSave => _isCalcOnSave;
+  StreamSubscription<OperationData> addListener(ListenerStream listener) {
+    _listenerController ??= StreamController<OperationData>();
 
-  @override
-  // ignore: unnecessary_getters_setters
-  set isCalculateOnSave(bool isCalculateOnSave) => _isCalcOnSave = isCalculateOnSave;
-
-  @override
-  void addListener(ListenerInfo listener) => _initListeners().add(listener);
-
-  @override
-  bool removeListener(ListenerInfo listener) => _listeners?.remove(listener) == true;
+    return _listenerController.stream.listen(listener);
+  }
 
   @override
   Future<T> save(T entityInstance, [Transaction transaction]) async =>
@@ -171,21 +169,21 @@ class Query<T> implements QueryAbstract<T> {
       _processOperation(entityInstance, Operation.delete, transaction);
 
   @override
-  Future<T> selectOne(String query, [List params, Transaction transaction]) async {
-    final List<T> resultList = await select(query: query, params: params, transaction: transaction);
+  Future<T> selectOne(QueryData queryData, {Transaction transaction}) async {
+    final List<T> resultList = await select(queryData: queryData, transaction: transaction);
 
     return resultList?.isNotEmpty == true ? resultList.first : null;
   }
 
   @override
-  Future<List<T>> select({String query, List<dynamic> params, Transaction transaction}) async {
-    final String queryMainSelect = mainSelect;
+  Future<List<T>> select({QueryData queryData, Transaction transaction}) async {
+    final String queryMainSelect = mainQuery?.query;
 
-    final String querySelect = query?.isNotEmpty == true ? query : queryMainSelect;
+    final String querySelect = queryData?.query?.isNotEmpty == true ? queryData?.query : queryMainSelect;
 
     final isMain = querySelect == queryMainSelect;
 
-    final paramsSelect = params != null ? params : await mainParams;
+    final paramsSelect = isMain && queryData?.params == null ? mainQuery?.params : queryData?.params;
 
     final List<T> result = _initResultList(isMain);
 
@@ -225,7 +223,7 @@ class Query<T> implements QueryAbstract<T> {
   Future<List<T>> get mainEntityList async {
     if (mainList != null) return mainList;
 
-    mainSelect?.isNotEmpty == true ? await select() : _resetMainList();
+    mainQuery?.query?.isNotEmpty == true ? await select() : _resetMainList();
 
     return mainList;
   }
@@ -259,14 +257,8 @@ class Query<T> implements QueryAbstract<T> {
     return pkColumn.getterToSql(entity.reflect(entityObject));
   }
 
-  _sendListenerInfo(List<T> items, Operation operation) => _listeners?.forEach((it) => it(items, operation));
-
-  List<ListenerInfo<T>> _initListeners() {
-    if (_listeners == null) {
-      _listeners = List<ListenerInfo<T>>();
-    }
-    return _listeners;
-  }
+  _sendListenerInfo(List<T> items, Operation operation) =>
+      _listenerController?.add(OperationData(items, operation));
 
   List<T> _initResultList(bool isMain) {
     if (isMain) {
