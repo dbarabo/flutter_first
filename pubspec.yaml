@@ -26,23 +26,15 @@ dependencies:
 
   sqflite: ^1.1.5
   reflectable: ^2.0.12 # ^2.0.10+1
-
-  # rxdart: ^0.22.0
-
-  inject:
-    path: ./vendor/inject.dart/package/inject
+  dryice: ^2.0.26
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
 
   # source generator
-  build_runner: any # ^1.0.0
+  build_runner: ^1.0.0
 
-  inject_generator:
-    path: ./vendor/inject.dart/package/inject_generator
-
-  #test: ^1.5.0
 
 
 

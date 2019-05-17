@@ -54,6 +54,7 @@ order by case when c.parent is null then 1000000*c.id else 1000000*c.parent + c.
   static const _PERSON_SELECT = """
     select p.*,
 
+
     (select -1* sum(case when a.id = pp.account then pp.amount else -1*pp.amount end)
        from pay pp
           , account a
